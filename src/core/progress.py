@@ -14,9 +14,11 @@ except ImportError:
 
 
 class Progress:
-    PROGRESS_VERSION = 2
+    PROGRESS_VERSION = 3
     SETTINGS_VERSION = 1
-    SOLUTIONS_VERSION = 1
+    SOLUTIONS_VERSION = 2
+    MOVE_CODES = {(0, -1): "U", (0, 1): "D", (-1, 0): "L", (1, 0): "R"}
+    CODE_MOVES = {code: move for move, code in MOVE_CODES.items()}
 
     def __init__(self, path, settings_path=None, solutions_path=None,
                  backup_path=None, legacy_path=None):
@@ -42,24 +44,25 @@ class Progress:
             self._import_progress(raw)
 
         settings = self._load_with_backup(
-            self.settings_path, self._backup_for(self.settings_path), self._valid_settings,
-            report_missing=False)
+            self.settings_path, None, self._valid_settings, report_missing=False)
         if settings is not None:
             self.settings = settings
 
         solutions = self._load_with_backup(
-            self.solutions_path, self._backup_for(self.solutions_path), self._valid_solutions,
-            report_missing=False)
+            self.solutions_path, None, self._valid_solutions, report_missing=False)
         if solutions is not None:
-            self.solutions = solutions
+            self._import_solutions(solutions)
 
-    @staticmethod
-    def _backup_for(path):
-        return path.with_name(f"{path.stem}.backup.json")
+        self._progress_fingerprint = self._fingerprint_file(
+            self.path, self._valid_progress, self.PROGRESS_VERSION)
+        self._settings_fingerprint = self._fingerprint_file(
+            self.settings_path, self._valid_settings, self.SETTINGS_VERSION)
+        self._solutions_fingerprint = self._fingerprint_file(
+            self.solutions_path, self._valid_solutions, self.SOLUTIONS_VERSION)
 
     @staticmethod
     def _valid_progress(raw):
-        return (isinstance(raw, dict) and raw.get("version") in (1, 2)
+        return (isinstance(raw, dict) and raw.get("version") in (1, 2, 3)
                 and isinstance(raw.get("levels"), dict)
                 and all(isinstance(value, dict) for value in raw["levels"].values()))
 
@@ -70,13 +73,13 @@ class Progress:
 
     @staticmethod
     def _valid_solutions(raw):
-        return (isinstance(raw, dict) and raw.get("version") == 1
+        return (isinstance(raw, dict) and raw.get("version") in (1, 2)
                 and isinstance(raw.get("levels"), dict)
                 and all(isinstance(value, dict) for value in raw["levels"].values()))
 
     def _load_with_backup(self, path, backup, validator, report_missing=True):
         if not path.exists():
-            if backup.exists():
+            if backup is not None and backup.exists():
                 try:
                     raw = json.loads(backup.read_text(encoding="utf-8"))
                     if validator(raw):
@@ -92,6 +95,8 @@ class Progress:
             return raw
         except (OSError, ValueError, TypeError):
             try:
+                if backup is None:
+                    raise FileNotFoundError
                 raw = json.loads(backup.read_text(encoding="utf-8"))
                 if not validator(raw):
                     raise ValueError("Invalid backup format")
@@ -105,9 +110,70 @@ class Progress:
     def _import_progress(self, raw):
         current = raw.get("current", "")
         self.data["current"] = current if isinstance(current, str) else ""
-        self.data["levels"] = dict(raw["levels"])
+        for level_key, source in raw["levels"].items():
+            entry = dict(source)
+            if isinstance(entry.get("actions"), str):
+                entry["actions"] = self._decode_moves(entry["actions"])
+            self.data["levels"][level_key] = entry
         if raw.get("version") == 1 and type(raw.get("sound")) is bool:
             self.settings["sound"] = raw["sound"]
+
+    def _import_solutions(self, raw):
+        for level_key, source in raw["levels"].items():
+            entry = dict(source)
+            if isinstance(entry.get("path"), str):
+                entry["path"] = self._decode_moves(entry["path"])
+            self.solutions["levels"][level_key] = entry
+
+    @classmethod
+    def _encode_moves(cls, moves):
+        if not isinstance(moves, list):
+            return moves
+        try:
+            return "".join(cls.MOVE_CODES[tuple(move)] for move in moves)
+        except (KeyError, TypeError):
+            return moves
+
+    @classmethod
+    def _decode_moves(cls, encoded):
+        if not isinstance(encoded, str) or len(encoded) > 100000:
+            return None
+        try:
+            return [cls.CODE_MOVES[code] for code in encoded]
+        except KeyError:
+            return None
+
+    def _progress_payload(self):
+        levels = {}
+        for level_key, source in self.data["levels"].items():
+            entry = dict(source)
+            if "actions" in entry:
+                entry["actions"] = self._encode_moves(entry["actions"])
+            levels[level_key] = entry
+        return {"version": self.PROGRESS_VERSION,
+                "current": self.data["current"], "levels": levels}
+
+    def _solutions_payload(self):
+        levels = {}
+        for level_key, source in self.solutions["levels"].items():
+            entry = dict(source)
+            if "path" in entry:
+                entry["path"] = self._encode_moves(entry["path"])
+            levels[level_key] = entry
+        return {"version": self.SOLUTIONS_VERSION, "levels": levels}
+
+    @staticmethod
+    def _canonical(payload):
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    def _fingerprint_file(self, path, validator, version):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if validator(raw) and raw.get("version") == version:
+                return self._canonical(raw)
+        except (OSError, ValueError, TypeError):
+            pass
+        return None
 
     @property
     def sound(self):
@@ -229,10 +295,10 @@ class Progress:
         temporary = path.with_name(f"{path.name}.tmp")
         try:
             with temporary.open("w", encoding="utf-8") as stream:
-                json.dump(payload, stream, indent=2)
+                json.dump(payload, stream, sort_keys=True, separators=(",", ":"))
                 stream.flush()
                 os.fsync(stream.fileno())
-            if path.is_file():
+            if backup is not None and path.is_file():
                 try:
                     current = json.loads(path.read_text(encoding="utf-8"))
                     if validator(current):
@@ -249,14 +315,24 @@ class Progress:
             return False
 
     def save(self):
-        writes = (
-            self._atomic_write(self.path, self.data, self.backup_path, self._valid_progress),
-            self._atomic_write(self.settings_path, self.settings,
-                               self._backup_for(self.settings_path), self._valid_settings),
-            self._atomic_write(self.solutions_path, self.solutions,
-                               self._backup_for(self.solutions_path), self._valid_solutions),
+        targets = (
+            (self.path, self._progress_payload(), self.backup_path,
+             self._valid_progress, "_progress_fingerprint"),
+            (self.settings_path, self.settings, None,
+             self._valid_settings, "_settings_fingerprint"),
+            (self.solutions_path, self._solutions_payload(), None,
+             self._valid_solutions, "_solutions_fingerprint"),
         )
-        if all(writes):
+        success = True
+        for path, payload, backup, validator, fingerprint_name in targets:
+            fingerprint = self._canonical(payload)
+            if fingerprint == getattr(self, fingerprint_name):
+                continue
+            if self._atomic_write(path, payload, backup, validator):
+                setattr(self, fingerprint_name, fingerprint)
+            else:
+                success = False
+        if success:
             self.error = ""
             return True
         self.error = "Player data could not be saved."

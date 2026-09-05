@@ -85,6 +85,12 @@ Sokoban/
 - `Renderer`: Tự động tính toán `tile_size` dựa trên kích thước cửa sổ để hiển thị bàn cờ ở kích thước tối ưu nhất mà không làm vỡ điểm ảnh pixel art (nearest-neighbor sampling).
 - `Audio`: Phát lặp nhạc nền `assets/Perfectly_Aligned.mp3` ở màn hình tiêu đề và danh sách chọn level; nhạc chỉ tạm dừng khi bắt đầu chơi một level và tiếp tục khi quay về Home. Các hiệu ứng bước đi, đẩy hộp, vào đích và thắng màn vẫn được sinh trực tiếp bằng sóng sin. Nút Sound điều khiển đồng thời nhạc và hiệu ứng.
 
+### 3.5. Dữ liệu người chơi
+- Dữ liệu portable nằm trong `data/` trên cùng ổ đĩa với game.
+- Schema progress hiện tại là version 3; lịch sử nước đi và lời giải AI được mã hóa thành chuỗi `UDLR` khi ghi và giải mã về tuple khi đọc.
+- `Progress.save()` chỉ ghi file có nội dung thay đổi. Chỉ `progress.json` có atomic backup; cache AI có thể tái tạo nên không sao lưu.
+- Save version 1/2 và solutions-cache version 1 được migration tự động.
+
 ---
 
 ## 4. Tiêu Chuẩn Thiết Kế Bản Đồ (Level Design Guidelines)

@@ -74,6 +74,9 @@ are separated by responsibility: `progress.json` contains records and the curren
 `settings.json` contains preferences, and `solutions-cache.json` contains disposable
 verified AI paths. Writes use atomic replacement and preserve the previous valid
 `progress.backup.json`. Version 1 `data/progress.json` saves are upgraded automatically.
+Move histories and AI paths use compact `UDLR` direction strings in schema version 3.
+Only the file whose content changed is rewritten; the derived solution cache does not
+need its own backup because it can be regenerated safely.
 
 Levels use a stable numbered key (for example `level05`) plus a content hash. Renaming a
 level's descriptive suffix therefore keeps its records. Changing the map retains stars

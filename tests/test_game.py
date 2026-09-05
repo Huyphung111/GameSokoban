@@ -5,6 +5,7 @@ import unittest
 from collections import deque
 from pathlib import Path
 from threading import Event
+from unittest.mock import patch
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -185,13 +186,24 @@ class ProgressTests(unittest.TestCase):
         self.game.move_player(-1, 0)
         self.game.move_player(-1, 0)
         self.progress.capture(self.game, True)
+        result = solve_a_star(self.game)
+        self.progress.remember_solution(self.game, result.path)
         self.assertTrue(self.progress.save())
+        progress_raw = json.loads(self.path.read_text(encoding="utf-8"))
+        solutions_raw = json.loads(
+            self.progress.solutions_path.read_text(encoding="utf-8"))
+        self.assertEqual(progress_raw["version"], 3)
+        self.assertEqual(progress_raw["levels"][self.game.level_key]["actions"], "LL")
+        self.assertEqual(solutions_raw["version"], 2)
+        self.assertEqual(solutions_raw["levels"][self.game.level_key]["path"], "LLD")
         loaded = Progress(self.path)
         game = Game(config.LEVEL_FILE)
         self.assertTrue(loaded.restore(game))
         self.assertEqual(game.state, self.game.state)
         self.assertEqual(game.moves, 2)
         self.assertTrue(game.undo())
+        self.assertTrue(valid_path(game, game.initial_state,
+                                   loaded.cached_solution(game), True))
 
     def test_cache_is_validated_and_scoped_to_map(self):
         self.game.move_player(-1, 0)
@@ -233,9 +245,39 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(migrated.cached_solution(self.game), result.path)
         self.assertTrue(migrated.save())
 
-        self.assertEqual(json.loads(self.path.read_text())["version"], 2)
+        self.assertEqual(json.loads(self.path.read_text())["version"], 3)
         self.assertTrue(migrated.settings_path.is_file())
         self.assertTrue(migrated.solutions_path.is_file())
+
+    def test_save_only_writes_changed_data_file(self):
+        self.assertTrue(self.progress.save())
+        with patch.object(self.progress, "_atomic_write",
+                          wraps=self.progress._atomic_write) as writer:
+            self.progress.data["current"] = "level02"
+            self.assertTrue(self.progress.save())
+            self.assertEqual([call.args[0] for call in writer.call_args_list],
+                             [self.progress.path])
+
+            writer.reset_mock()
+            self.progress.sound = False
+            self.assertTrue(self.progress.save())
+            self.assertEqual([call.args[0] for call in writer.call_args_list],
+                             [self.progress.settings_path])
+
+            writer.reset_mock()
+            result = solve_a_star(self.game)
+            self.progress.remember_solution(self.game, result.path)
+            self.assertTrue(self.progress.save())
+            self.assertEqual([call.args[0] for call in writer.call_args_list],
+                             [self.progress.solutions_path])
+
+            writer.reset_mock()
+            self.assertTrue(self.progress.save())
+            writer.assert_not_called()
+        self.assertFalse(self.progress.settings_path.with_name(
+            f"{self.progress.settings_path.stem}.backup.json").exists())
+        self.assertFalse(self.progress.solutions_path.with_name(
+            f"{self.progress.solutions_path.stem}.backup.json").exists())
 
     def test_legacy_location_is_imported_without_modifying_source(self):
         legacy_path = Path(self.folder.name) / "legacy" / "progress.json"
@@ -292,6 +334,17 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(self.game.state, self.game.initial_state)
         self.assertEqual(self.game.moves, 0)
         self.assertTrue(self.progress.error)
+
+    def test_invalid_encoded_moves_are_rejected(self):
+        payload = {"version": 3, "current": self.game.level_key, "levels": {
+            self.game.level_key: {"content_hash": self.game.level_id,
+                                  "actions": "LX", "assisted": False}}}
+        self.path.write_text(json.dumps(payload), encoding="utf-8")
+        loaded = Progress(self.path)
+        game = Game(config.LEVEL_FILE)
+        self.assertFalse(loaded.restore(game))
+        self.assertEqual(game.state, game.initial_state)
+        self.assertTrue(loaded.error)
 
     def test_corrupt_json_and_schema(self):
         for raw in ("{bad", "null", "[]", '{"version":1,"levels":{"a":[]}}'):
