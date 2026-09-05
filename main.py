@@ -47,8 +47,17 @@ class App:
         self.screen = pygame.display.set_mode(
             (config.INITIAL_SCREEN_WIDTH, config.INITIAL_SCREEN_HEIGHT), pygame.RESIZABLE)
         self.renderer = Renderer(config.FONT_PATH)
-        self.progress = Progress(save_path or config.SAVE_FILE)
-        self.audio = Audio(bool(self.progress.data.get("sound", True)))
+        if save_path is None:
+            self.progress = Progress(
+                config.SAVE_FILE,
+                settings_path=config.SETTINGS_FILE,
+                solutions_path=config.SOLUTIONS_FILE,
+                backup_path=config.PROGRESS_BACKUP_FILE,
+            )
+        else:
+            self.progress = Progress(save_path)
+        self.title_screen = (save_path is None) if start_title is None else bool(start_title)
+        self.audio = Audio(self.progress.sound, self.title_screen)
         self.levels, self.catalog, errors = [], [], []
         for path in config.level_files():
             try:
@@ -58,15 +67,19 @@ class App:
                 errors.append(f"{path.name}: {error}")
         if not self.levels:
             raise ValueError("No valid levels found: " + "; ".join(errors))
+        self.progress.register_levels(self.catalog)
         selected = self.progress.data.get("current")
-        self.level_index = next((i for i, path in enumerate(self.levels) if path.name == selected), 0)
+        self.level_index = next(
+            (index for index, (path, game) in enumerate(zip(self.levels, self.catalog))
+             if selected in (path.name, game.level_key)),
+            0,
+        )
         self.game = Game(self.levels[self.level_index])
         self.assisted = self.progress.restore(self.game)
         self.status = f"{len(errors)} invalid level(s) skipped" if errors else "Ready"
         for error in errors:
             print(error)
         self.metrics = ""
-        self.title_screen = (save_path is None) if start_title is None else bool(start_title)
         self.menu_open = False
         self.completion_open = self.game.game_won
         self.completion_due = 0
@@ -94,9 +107,8 @@ class App:
 
     @property
     def completion_visible(self):
-        # Keep rendering and input routing in sync: an open modal must always
-        # have visible, clickable controls.
-        return self.completion_open
+        # Let the final push and goal effect finish before covering the board.
+        return self.completion_open and pygame.time.get_ticks() >= self.completion_due
 
     def refresh(self):
         self.deadlocked = self.game.is_deadlocked()
@@ -104,7 +116,7 @@ class App:
 
     def save(self):
         self.progress.capture(self.game, self.assisted)
-        self.progress.data["sound"] = self.audio.enabled
+        self.progress.sound = self.audio.enabled
         self.progress.save()
 
     def stop(self):
@@ -216,6 +228,7 @@ class App:
         # completion, stars and best scores remain in Progress.
         self.assisted = False
         self.title_screen = False
+        self.audio.set_music_active(False)
         self.menu_open = False
         self.status, self.metrics = "Ready", ""
         self.changed()
@@ -225,6 +238,7 @@ class App:
             return
         if action == "start_game":
             self.title_screen = False
+            self.audio.set_music_active(False)
             self.menu_open = False
         elif action == "select_level_menu":
             self.title_screen = False
@@ -236,6 +250,7 @@ class App:
             self.deadlock_open = False
             self.menu_open = False
             self.title_screen = True
+            self.audio.set_music_active(True)
         elif action == "exit":
             self.running = False
         elif action == "dismiss_completion":
@@ -352,6 +367,7 @@ class App:
                     self.menu_open = False
                 else:
                     self.title_screen = True
+                    self.audio.set_music_active(True)
                 self.status = "Ready"
             elif event.key == pygame.K_F11:
                 self.fullscreen = not self.fullscreen
@@ -387,6 +403,7 @@ class App:
         self.stop()
         self.executor.shutdown(wait=True)
         self.save()
+        self.audio.close()
         pygame.quit()
 
     def run(self):

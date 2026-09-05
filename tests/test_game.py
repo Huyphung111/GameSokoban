@@ -1,3 +1,4 @@
+import json
 import sys
 import tempfile
 import unittest
@@ -103,10 +104,12 @@ class GameTests(unittest.TestCase):
         self.assertTrue(game.is_deadlocked())
 
     def test_all_bundled_levels_validate(self):
+        self.assertEqual(config.USER_DATA_DIR, config.BASE_DIR / "data")
         for path in config.level_files():
             with self.subTest(level=path.name):
                 game = Game(path)
                 self.assertEqual(len(game.state[1]), len(game.goals))
+                self.assertEqual(game.level_key, path.stem.split("_", 1)[0])
 
 
 class SolverTests(unittest.TestCase):
@@ -198,8 +201,90 @@ class ProgressTests(unittest.TestCase):
         self.assertTrue(valid_path(self.game, self.game.initial_state, cached, True))
         other = Game(config.BASE_DIR / "levels" / "level02_two_boxes.txt")
         self.assertIsNone(self.progress.cached_solution(other))
-        self.progress.entry(self.game)["solution"] = [[99, 0]]
+        self.progress.solutions["levels"][self.game.level_key]["path"] = [[99, 0]]
         self.assertIsNone(self.progress.cached_solution(self.game))
+
+    def test_v1_save_migrates_to_stable_level_keys_and_split_files(self):
+        result = solve_a_star(self.game)
+        legacy = {
+            "version": 1,
+            "current": self.game.current_level_path.name,
+            "sound": False,
+            "levels": {
+                self.game.level_id: {
+                    "actions": [[-1, 0]],
+                    "assisted": True,
+                    "completed": True,
+                    "stars": 2,
+                    "solution": result.path,
+                }
+            },
+        }
+        self.path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        migrated = Progress(self.path)
+        migrated.register_levels([self.game])
+        entry = migrated.entry(self.game)
+        self.assertNotIn(self.game.level_id, migrated.data["levels"])
+        self.assertIn(self.game.level_key, migrated.data["levels"])
+        self.assertEqual(entry["content_hash"], self.game.level_id)
+        self.assertEqual(migrated.data["current"], self.game.level_key)
+        self.assertFalse(migrated.sound)
+        self.assertEqual(migrated.cached_solution(self.game), result.path)
+        self.assertTrue(migrated.save())
+
+        self.assertEqual(json.loads(self.path.read_text())["version"], 2)
+        self.assertTrue(migrated.settings_path.is_file())
+        self.assertTrue(migrated.solutions_path.is_file())
+
+    def test_legacy_location_is_imported_without_modifying_source(self):
+        legacy_path = Path(self.folder.name) / "legacy" / "progress.json"
+        new_path = Path(self.folder.name) / "user-data" / "progress.json"
+        legacy_path.parent.mkdir()
+        legacy = {"version": 1, "current": self.game.current_level_path.name,
+                  "sound": False, "levels": {self.game.level_id: {"stars": 2,
+                  "completed": True}}}
+        original = json.dumps(legacy)
+        legacy_path.write_text(original, encoding="utf-8")
+
+        migrated = Progress(new_path, legacy_path=legacy_path)
+        migrated.register_levels([self.game])
+        self.assertFalse(migrated.sound)
+        self.assertEqual(migrated.stars(self.game), 2)
+        self.assertTrue(migrated.save())
+        self.assertEqual(legacy_path.read_text(encoding="utf-8"), original)
+        self.assertTrue(new_path.is_file())
+
+    def test_level_content_change_keeps_records_but_resets_volatile_data(self):
+        entry = self.progress.entry(self.game)
+        entry.update({"content_hash": "old", "actions": [[-1, 0]],
+                      "assisted": True, "completed": True, "stars": 3,
+                      "best": [1, 3]})
+        self.progress.solutions["levels"][self.game.level_key] = {
+            "content_hash": "old", "path": [[-1, 0]]}
+
+        refreshed = self.progress.entry(self.game)
+        self.assertTrue(refreshed["completed"])
+        self.assertEqual(refreshed["stars"], 3)
+        self.assertEqual(refreshed["best"], [1, 3])
+        self.assertNotIn("actions", refreshed)
+        self.assertNotIn(self.game.level_key, self.progress.solutions["levels"])
+
+    def test_corrupt_progress_recovers_from_last_valid_backup(self):
+        self.progress.data["current"] = "first"
+        self.assertTrue(self.progress.save())
+        self.progress.data["current"] = "second"
+        self.assertTrue(self.progress.save())
+        self.path.write_text("{broken", encoding="utf-8")
+
+        recovered = Progress(self.path)
+        self.assertEqual(recovered.data["current"], "first")
+        self.assertIn("restored from backup", recovered.error)
+
+        self.path.unlink()
+        recovered = Progress(self.path)
+        self.assertEqual(recovered.data["current"], "first")
+        self.assertIn("restored from backup", recovered.error)
 
     def test_invalid_saved_path_never_partially_restores(self):
         self.progress.entry(self.game)["actions"] = [[-1, 0], [99, 0]]

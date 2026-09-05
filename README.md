@@ -33,10 +33,10 @@ Sokoban/
 │   │   └── solutions.py # Move sequence validation against Sokoban rules
 │   └── ui/              # Pygame presentation layer
 │       ├── renderer.py  # Board graphics, responsive UI, fonts, modals
-│       └── audio.py     # Sound effects synthesizer and playback
+│       └── audio.py     # Looping background music and synthesized sound effects
 │
-├── assets/              # Pixel-art game sprites (.png)
-├── data/                # Player save files (progress.json)
+├── assets/              # Pixel-art sprites and bundled menu music
+├── data/                # Portable progress, settings, cache, and backups
 ├── levels/              # 11 hand-crafted levels (.txt)
 └── tests/               # Automated unit tests
 ```
@@ -69,10 +69,15 @@ next level. The menu also appears when an AI playback completes a level.
 
 ## Progress
 
-`data/progress.json` stores the last level, each level's legal move history, completion,
-verified cached solutions, best scores, and sound preference. Writes use an atomic
-temporary-file replacement. Invalid saves are reported and ignored. Level content
-hashes prevent applying saves or solutions to changed maps.
+Mutable player data is stored in the project's portable `data/` directory. The files
+are separated by responsibility: `progress.json` contains records and the current run,
+`settings.json` contains preferences, and `solutions-cache.json` contains disposable
+verified AI paths. Writes use atomic replacement and preserve the previous valid
+`progress.backup.json`. Version 1 `data/progress.json` saves are upgraded automatically.
+
+Levels use a stable numbered key (for example `level05`) plus a content hash. Renaming a
+level's descriptive suffix therefore keeps its records. Changing the map retains stars
+and best scores while safely discarding incompatible moves and cached solutions.
 
 Scores are ordered by pushes, then moves. Assisted and solo records are separate.
 
@@ -127,8 +132,10 @@ same enclosed floor region as the player. Outside padding is non-playable void.
 
 The existing PNG assets are loaded once and resized with nearest-neighbor sampling
 to preserve their pixels. Text is rendered at its final font size, and Windows DPI
-awareness avoids OS bitmap stretching. Movement animation
-and sound cues are optional presentation details; rules and solver do not depend on
-Pygame. No additional solver or audio packages are required.
+awareness avoids OS bitmap stretching. Movement animation, background music, and sound
+cues are optional presentation details; rules and solver do
+not depend on Pygame. The bundled `Perfectly_Aligned.mp3` track loops at a reduced volume
+on the title and level-selection screens, then stops when a level starts. Gameplay retains
+its synthesized sound effects without music. No additional solver or audio packages are required.
 # Sokoban
 # GameSokoban

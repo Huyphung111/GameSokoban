@@ -2,6 +2,7 @@
 
 from collections import deque
 from hashlib import sha256
+import re
 from pathlib import Path
 
 DIRECTIONS = ((0, -1), (0, 1), (-1, 0), (1, 0))
@@ -87,6 +88,8 @@ class Game:
         if not (boxes | goals) <= reachable:
             raise ValueError("All boxes and goals must be in the playable area")
         self.current_level_path = path
+        numbered = re.match(r"^(level\d+)(?:_|$)", path.stem, re.IGNORECASE)
+        self.level_key = numbered.group(1).lower() if numbered else path.stem
         self.width, self.height = max(map(len, lines)), len(lines)
         self.floors, self.walls, self.goals = map(frozenset, (reachable, walls, goals))
         self.initial_state = players[0], frozenset(boxes)

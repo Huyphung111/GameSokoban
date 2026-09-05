@@ -11,7 +11,7 @@ import unittest
 from concurrent.futures import Future
 from pathlib import Path
 from threading import Event
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -136,13 +136,49 @@ class AppTests(unittest.TestCase):
         self.app = App(Path(self.folder.name) / "save.json")
         self.assertEqual(self.app.game.moves, 1)
 
+    def test_background_music_stops_only_after_entering_a_level(self):
+        self.assertTrue(self.app.audio.music_available)
+        self.assertFalse(self.app.audio.music_started)
+        self.assertFalse(pygame.mixer.music.get_busy())
+
+        self.app.action("home")
+        self.assertTrue(self.app.title_screen)
+        self.assertTrue(self.app.audio.music_started)
+        self.assertTrue(pygame.mixer.music.get_busy())
+
+        self.app.action("select_level_menu")
+        self.assertTrue(self.app.menu_open)
+        self.assertTrue(pygame.mixer.music.get_busy())
+
+        self.app.select_level(0)
+        self.assertFalse(pygame.mixer.music.get_busy())
+        self.app.action("home")
+        self.assertTrue(pygame.mixer.music.get_busy())
+
+        self.app.action("sound")
+        self.assertFalse(self.app.audio.enabled)
+        self.assertFalse(pygame.mixer.music.get_busy())
+        self.app.action("sound")
+        self.assertTrue(self.app.audio.enabled)
+        self.assertTrue(pygame.mixer.music.get_busy())
+
+        self.app.action("start_game")
+        self.assertFalse(self.app.title_screen)
+        self.assertFalse(pygame.mixer.music.get_busy())
+        self.assertTrue(self.app.audio.enabled)
+
     def win_level(self):
         for move in [(-1, 0), (-1, 0), (0, 1)]:
             self.app.move(move)
         self.assertTrue(self.app.game.game_won)
 
     def click_action(self, action):
-        self.app.renderer.draw(self.app.screen, self.app)
+        if self.app.completion_open:
+            with patch("src.ui.renderer.pygame.time.get_ticks",
+                       return_value=self.app.completion_due):
+                self.app.renderer.draw(self.app.screen, self.app)
+        else:
+            self.app.renderer.draw(self.app.screen, self.app)
         rect = next(rect for rect, name, enabled, _ in self.app.renderer.buttons if name == action and enabled)
         self.app.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=rect.center))
 
@@ -156,11 +192,14 @@ class AppTests(unittest.TestCase):
 
     def test_win_menu_waits_for_every_box(self):
         self.app.select_level(1)
+        goal_sound = Mock()
+        self.app.audio.sounds["goal"] = goal_sound
         result = solve_hill_climbing_full(self.app.game, max_steps=1)
         for move in result.path:
             self.app.move(move)
         self.assertEqual(len(self.app.game.state[1] & self.app.game.goals), 1)
         self.assertFalse(self.app.completion_open)
+        goal_sound.play.assert_called_once_with()
 
     def test_win_menu_dismiss_undo_redo_restart(self):
         self.win_level()
@@ -179,6 +218,7 @@ class AppTests(unittest.TestCase):
 
     def test_completion_animation_starts_once_and_restarts(self):
         self.win_level()
+        self.app.completion_due = 0
         with patch("src.ui.renderer.pygame.time.get_ticks", return_value=1000):
             self.app.renderer.draw(self.app.screen, self.app)
         self.assertEqual(self.app.renderer.completion_animation_start, 1000)
@@ -194,6 +234,24 @@ class AppTests(unittest.TestCase):
         with patch("src.ui.renderer.pygame.time.get_ticks", return_value=2000):
             self.app.renderer.draw(self.app.screen, self.app)
         self.assertEqual(self.app.renderer.completion_animation_start, 2000)
+
+    def test_completion_waits_for_final_goal_effect(self):
+        self.app.move((-1, 0))
+        self.app.move((-1, 0))
+        self.app.renderer.draw(self.app.screen, self.app)
+
+        with patch("main.pygame.time.get_ticks", return_value=1000):
+            self.app.move((0, 1))
+
+        self.assertTrue(self.app.completion_open)
+        self.assertEqual(
+            self.app.completion_due,
+            1000 + config.MOVE_ANIMATION_MS + config.GOAL_EFFECT_MS,
+        )
+        with patch("main.pygame.time.get_ticks", return_value=self.app.completion_due - 1):
+            self.assertFalse(self.app.completion_visible)
+        with patch("main.pygame.time.get_ticks", return_value=self.app.completion_due):
+            self.assertTrue(self.app.completion_visible)
 
     def test_win_menu_enter_and_final_level(self):
         self.win_level()

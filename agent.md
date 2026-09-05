@@ -7,7 +7,7 @@ Tài liệu này cung cấp toàn bộ ngữ cảnh kiến trúc, quy ước thi
 ## 1. Tổng Quan Dự Án (Project Overview)
 
 - **Ngôn ngữ & Thư viện chính**: Python 3.10+ (Pygame).
-- **Mục tiêu**: Trò chơi Sokoban hoàn chỉnh trên Desktop với tính năng Undo/Redo không giới hạn, lưu tiến độ chơi an toàn (atomic save), tích hợp AI Solver (thuật toán tìm kiếm A* và Hill Climbing), giao diện tự động co giãn (responsive), và âm thanh hiệu ứng tự tổng hợp (không phụ thuộc asset audio ngoài).
+- **Mục tiêu**: Trò chơi Sokoban hoàn chỉnh trên Desktop với Undo/Redo không giới hạn, lưu tiến độ an toàn, AI Solver (A* và Hill Climbing), giao diện responsive, nhạc menu đóng gói sẵn và hiệu ứng âm thanh tự tổng hợp.
 
 ---
 
@@ -31,7 +31,7 @@ Sokoban/
 │   ├── core/                    # TẦNG LOGIC GAME THUẦN (Độc lập 100% với Pygame)
 │   │   ├── __init__.py
 │   │   ├── game.py              # Class Game: Quản lý bàn cờ, nước đi, deadlock, undo/redo
-│   │   └── progress.py          # Class Progress: Quản lý save/load progress.json, kỷ lục điểm
+│   │   └── progress.py          # Progress/settings/cache, migration và atomic backup
 │   │
 │   ├── ai/                      # TẦNG TRÍ TUỆ NHÂN TẠO & THUẬT TOÁN
 │   │   ├── __init__.py
@@ -41,10 +41,10 @@ Sokoban/
 │   └── ui/                      # TẦNG GIAO DIỆN & ĐỒ HỌA (Phụ thuộc Pygame)
 │       ├── __init__.py
 │       ├── renderer.py          # Vẽ bàn cờ, modal kết quả, danh sách level, tính toán scale
-│       └── audio.py             # Bộ tổng hợp âm thanh 16-bit procedurally generated
+│       └── audio.py             # Nhạc menu lặp và hiệu ứng 16-bit tự tổng hợp
 │
 ├── assets/                      # Hình ảnh sprite pixel-art: box.png, floor.png, goal.png, player.png, wall.png
-├── data/                        # File dữ liệu tiến trình người chơi: progress.json
+├── data/                        # Portable progress, settings, cache và backup
 ├── levels/                      # 11 bản đồ màn chơi đánh số thứ tự (level01_first_step.txt -> level11_final_challenge.txt)
 ├── tests/                       # Unit tests: test_game.py (kiểm thử luật), test_app.py (kiểm thử UI/App)
 ├── test-artifacts/              # Kết quả benchmark.json & ảnh chụp màn hình tự động
@@ -57,7 +57,7 @@ Sokoban/
 
 ### 3.1. `src/config.py`
 - `BASE_DIR`: Tính toán `Path(__file__).resolve().parent.parent` trỏ chính xác về thư mục gốc của project.
-- Mọi đường dẫn tài nguyên (`levels/`, `assets/`, `data/`) **bắt buộc** phải được tạo từ `BASE_DIR`.
+- Đường dẫn tài nguyên (`levels/`, `assets/`) phải được tạo từ `BASE_DIR`. Dữ liệu runtime dùng `USER_DATA_DIR = BASE_DIR / "data"` để toàn bộ save nằm cùng game trên ổ chứa dự án.
 - `LEVEL_FILE`: Trỏ đến map mở màn mặc định `levels/level01_first_step.txt`.
 - `level_files()`: Quét toàn bộ `levels/level*.txt` theo thứ tự tự nhiên (từ `level01_` đến `level11_`).
 
@@ -83,7 +83,7 @@ Sokoban/
 
 ### 3.4. `src/ui/renderer.py` & `src/ui/audio.py`
 - `Renderer`: Tự động tính toán `tile_size` dựa trên kích thước cửa sổ để hiển thị bàn cờ ở kích thước tối ưu nhất mà không làm vỡ điểm ảnh pixel art (nearest-neighbor sampling).
-- `Audio`: Sinh trực tiếp sóng sin âm thanh hiệu ứng (bước đi, đẩy hộp, vào đích, thắng màn) qua `pygame.mixer`, không cần bất kỳ file âm thanh MP3/WAV bên ngoài nào.
+- `Audio`: Phát lặp nhạc nền `assets/Perfectly_Aligned.mp3` ở màn hình tiêu đề và danh sách chọn level; nhạc chỉ tạm dừng khi bắt đầu chơi một level và tiếp tục khi quay về Home. Các hiệu ứng bước đi, đẩy hộp, vào đích và thắng màn vẫn được sinh trực tiếp bằng sóng sin. Nút Sound điều khiển đồng thời nhạc và hiệu ứng.
 
 ---
 

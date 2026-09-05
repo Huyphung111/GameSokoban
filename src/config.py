@@ -1,13 +1,19 @@
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+USER_DATA_DIR = BASE_DIR / "data"
 INITIAL_SCREEN_WIDTH = 900
 INITIAL_SCREEN_HEIGHT = 760
 MIN_SCREEN_WIDTH = 480
 MIN_SCREEN_HEIGHT = 520
 LEVEL_FILE = BASE_DIR / "levels" / "level01_first_step.txt"
 FONT_PATH = BASE_DIR / "fonts" / "Roboto-Bold.ttf"
-SAVE_FILE = BASE_DIR / "data" / "progress.json"
+MUSIC_FILE = BASE_DIR / "assets" / "Perfectly_Aligned.mp3"
+SAVE_FILE = USER_DATA_DIR / "progress.json"
+SETTINGS_FILE = USER_DATA_DIR / "settings.json"
+SOLUTIONS_FILE = USER_DATA_DIR / "solutions-cache.json"
+PROGRESS_BACKUP_FILE = USER_DATA_DIR / "progress.backup.json"
+MUSIC_VOLUME = 0.22
 SOLVER_SECONDS = 15.0
 SOLVER_STATES = 50000
 PLAYBACK_MS = 130
