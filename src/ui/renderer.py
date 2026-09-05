@@ -134,6 +134,16 @@ class Renderer:
             self.tile_size = size
             self.assets = {tile: pygame.transform.scale(img, (size, size))
                            for tile, img in self.originals.items()}
+            # Cache a compact feathered contact shadow at the current tile size.
+            shadow_width = max(3, round(size * 1.08))
+            shadow_height = max(3, round(size * .22))
+            self.box_shadow = pygame.Surface((shadow_width, shadow_height), pygame.SRCALPHA)
+            for sy in range(shadow_height):
+                for sx in range(shadow_width):
+                    radius = ((sx + .5 - shadow_width / 2) / (shadow_width / 2)) ** 2
+                    radius += ((sy + .5 - shadow_height / 2) / (shadow_height / 2)) ** 2
+                    alpha = round(44 * max(0, 1 - radius) ** 2)
+                    self.box_shadow.set_at((sx, sy), (0, 0, 0, alpha))
 
     def draw_board(self, surface, game):
         width, height = surface.get_size()
@@ -170,12 +180,23 @@ class Renderer:
 
         removed, added = old_boxes - boxes, boxes - old_boxes
 
-        def sprite(tile, point, start=None):
+        def sprite_position(point, start=None):
             x, y = point
             if start is not None:
                 x = start[0] + (x - start[0]) * amount
                 y = start[1] + (y - start[1]) * amount
-            surface.blit(self.assets[tile], (round(ox + x * size), round(oy + y * size)))
+            return round(ox + x * size), round(oy + y * size)
+
+        def sprite(tile, point, start=None):
+            surface.blit(self.assets[tile], sprite_position(point, start))
+
+        # All shadows go below all crates, and follow the same push animation.
+        for box in boxes:
+            start = next(iter(removed)) if box in added and len(removed) == len(added) == 1 else None
+            px, py = sprite_position(box, start)
+            surface.blit(self.box_shadow,
+                         (round(px + (size - self.box_shadow.get_width()) / 2),
+                          round(py + size * 1.01 - self.box_shadow.get_height() / 2)))
 
         for box in boxes:
             start = next(iter(removed)) if box in added and len(removed) == len(added) == 1 else None
