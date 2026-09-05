@@ -142,3 +142,65 @@ Khi thiết kế hoặc thêm bản đồ mới vào `levels/`:
 - **Không vi phạm tính đóng gói**: Tuyệt đối không import thư viện đồ họa `pygame` vào trong `src/core/` hoặc `src/ai/`.
 - **Cấu hình đường dẫn**: Luôn import và sử dụng `config.BASE_DIR` thay vì dùng đường dẫn tương đối cứng (`./` hoặc `../`).
 - **Bảo tồn Unit Test**: Khi thực hiện refactor hoặc thêm tính năng, luôn chạy lại `python -m unittest tests/test_game.py` để đảm bảo không làm hỏng tính đúng đắn của logic game và hệ thống màn chơi hiện có.
+
+---
+
+## 7. Trạng Thái Bàn Giao Hiện Tại (2026-09-05)
+
+Các thay đổi dưới đây đã được triển khai và cần được bảo tồn trong những lần sửa tiếp theo:
+
+### 7.1. Animation người chơi bốn hướng
+
+- Sprite nguồn nằm tại `assets/player_directions.png.jpg`, gồm thứ tự khung: xuống, lên, trái, phải.
+- `src/ui/renderer.py` tách sprite nguồn thành bốn hướng và tạo bốn frame cho từng trạng thái `idle`, `walk`, `push`.
+- Hướng nhìn được giữ theo lần di chuyển gần nhất. Khi đứng yên, animation thở tiếp tục chạy; khi đi hoặc đẩy thùng, animation hành động chạy trong `PLAYER_ACTION_MS` rồi trở về idle.
+- Thời gian animation nằm trong `src/config.py`:
+  - `PLAYER_ACTION_MS = 160`
+  - `PLAYER_IDLE_FRAME_MS = 220`
+- Luôn scale sprite bằng nearest-neighbor (`pygame.transform.scale`) để giữ pixel art sắc nét.
+
+### 7.2. Hệ thống đánh giá sao
+
+- Màn đã giải luôn nhận tối thiểu 1 sao, kể cả vượt yêu cầu số move.
+- Đạt giới hạn move tương ứng sẽ nhận 2 hoặc 3 sao. Các ngưỡng được cấu hình tại `STAR_MOVE_TARGETS` trong `src/config.py` theo dạng `(giới hạn 3 sao, giới hạn 2 sao)`.
+- `src/core/progress.py` lưu kỷ lục sao tốt nhất và vẫn tương thích với save cũ.
+- Popup hoàn thành và danh sách level chỉ hiển thị biểu tượng sao; không hiển thị thêm dòng giải thích yêu cầu move.
+
+### 7.3. Chuyển và chọn level
+
+- `App.select_level()` trong `main.py` luôn tạo một ván mới từ trạng thái ban đầu.
+- Chọn level trong danh sách hoặc dùng Previous/Next không được phục hồi trạng thái đã thắng và không tự mở popup `Level complete`.
+- Thành tích đã lưu như sao, best score và trạng thái completed vẫn được giữ trong `Progress`.
+
+### 7.4. Popup hoàn thành
+
+- Animation hiện gồm: nền tối fade-in, popup trượt/phóng có overshoot nhẹ, glow, tiêu đề và thống kê xuất hiện tuần tự, từng ngôi sao pop, sau đó các nút xuất hiện.
+- Không sử dụng confetti/pháo giấy. Không thêm lại nếu chưa có yêu cầu mới từ người dùng.
+- Để giữ 60 FPS, renderer cache nền bàn chơi, nền đã làm tối và hình nút; chỉ dựng và scale surface nhỏ quanh popup. Khi sửa popup, tránh tạo nhiều surface toàn màn hình trong mỗi frame.
+- Kết quả đo headless gần nhất:
+  - `900x760`: khoảng `4.49 ms/frame` (`222.9 FPS` rendering capacity).
+  - `1920x1080`: khoảng `5.64 ms/frame` (`177.3 FPS` rendering capacity).
+- Timeline kiểm tra hình ảnh: `test-artifacts/completion-animation-timeline.png`.
+
+### 7.5. Kiểm thử và trạng thái Git
+
+- Bộ test hiện có `41` test và lần chạy gần nhất đều thành công:
+  ```powershell
+  python -m unittest discover -s tests
+  ```
+- Kiểm tra biên dịch gần nhất thành công:
+  ```powershell
+  python -m compileall -q main.py src tests
+  ```
+- Trước khi tiếp tục, chạy `git status --short`. Worktree hiện có các thay đổi tính năng chưa commit; không dùng `git reset --hard`, `git checkout --` hoặc ghi đè các file đang sửa.
+- Các test liên quan trực tiếp nằm tại:
+  - `tests/test_app.py`: reset level, popup completion, layout responsive và animation lifecycle.
+  - `tests/test_game.py`: ngưỡng sao, tối thiểu 1 sao và tương thích save cũ.
+
+## 8. Checklist Cho Phiên Code Tiếp Theo
+
+1. Đọc `agent.md`, kiểm tra `git status --short` và xem diff trước khi sửa.
+2. Chạy test nền để xác nhận trạng thái ban đầu.
+3. Giữ logic game trong `src/core/` độc lập với Pygame.
+4. Khi sửa UI/animation, kiểm tra tối thiểu ba kích thước cửa sổ: `480x520`, `900x760`, `1200x800`.
+5. Sau thay đổi, chạy toàn bộ 41 test, `git diff --check` và xem trực tiếp screenshot/frame nếu có thay đổi hình ảnh.

@@ -212,7 +212,9 @@ class App:
         self.save()
         self.level_index = index
         self.game = Game(self.levels[index])
-        self.assisted = self.progress.restore(self.game)
+        # Explicit level navigation always starts a fresh board. Records such as
+        # completion, stars and best scores remain in Progress.
+        self.assisted = False
         self.title_screen = False
         self.menu_open = False
         self.status, self.metrics = "Ready", ""

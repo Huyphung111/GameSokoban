@@ -75,6 +75,14 @@ temporary-file replacement. Invalid saves are reported and ignored. Level conten
 hashes prevent applying saves or solutions to changed maps.
 
 Scores are ordered by pushes, then moves. Assisted and solo records are separate.
+
+Every completed level earns at least one star. Meeting the configured move limits
+earns two or three stars, and the highest rating is saved across solo and assisted
+runs. Per-level limits are defined in `STAR_MOVE_TARGETS` in `src/config.py`; custom
+levels without configured limits still earn one star when completed.
+
+Choosing a level from the level list or navigating with Previous/Next always starts
+that board from its initial state; saved completion, stars, and best scores are kept.
 Once assistance has been used, a run remains assisted even after undo; restart clears
 that flag. Undo history is rebuilt on reload; undone redo branches are session-only.
 

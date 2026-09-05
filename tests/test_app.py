@@ -110,15 +110,25 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.app.game.moves, 0)
         self.assertEqual(self.app.status, "Search limit reached")
 
-    def test_level_switch_restores_individual_progress(self):
+    def test_level_switch_starts_fresh(self):
         self.app.move((-1, 0))
         self.app.select_level(1)
         self.assertEqual(self.app.game.moves, 0)
         self.app.select_level(0)
-        self.assertEqual(self.app.game.moves, 1)
-        self.app.action("reset")
-        self.assertFalse(self.app.assisted)
         self.assertEqual(self.app.game.moves, 0)
+        self.assertFalse(self.app.assisted)
+        self.assertFalse(self.app.completion_open)
+
+    def test_selecting_completed_level_starts_fresh_and_keeps_stars(self):
+        self.win_level()
+        self.assertEqual(self.app.progress.stars(self.app.game), 3)
+        self.app.select_level(1)
+        self.app.select_level(0)
+        self.assertEqual(self.app.game.state, self.app.game.initial_state)
+        self.assertEqual(self.app.game.moves, 0)
+        self.assertFalse(self.app.game.game_won)
+        self.assertFalse(self.app.completion_open)
+        self.assertEqual(self.app.progress.stars(self.app.game), 3)
 
     def test_save_survives_app_restart(self):
         self.app.move((-1, 0))
@@ -167,6 +177,24 @@ class AppTests(unittest.TestCase):
         self.assertFalse(self.app.game.game_won)
         self.assertEqual(self.app.game.moves, 0)
 
+    def test_completion_animation_starts_once_and_restarts(self):
+        self.win_level()
+        with patch("src.ui.renderer.pygame.time.get_ticks", return_value=1000):
+            self.app.renderer.draw(self.app.screen, self.app)
+        self.assertEqual(self.app.renderer.completion_animation_start, 1000)
+
+        with patch("src.ui.renderer.pygame.time.get_ticks", return_value=1500):
+            self.app.renderer.draw(self.app.screen, self.app)
+        self.assertEqual(self.app.renderer.completion_animation_start, 1000)
+
+        self.app.action("dismiss_completion")
+        self.app.renderer.draw(self.app.screen, self.app)
+        self.app.action("undo")
+        self.app.action("redo")
+        with patch("src.ui.renderer.pygame.time.get_ticks", return_value=2000):
+            self.app.renderer.draw(self.app.screen, self.app)
+        self.assertEqual(self.app.renderer.completion_animation_start, 2000)
+
     def test_win_menu_enter_and_final_level(self):
         self.win_level()
         self.app.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
@@ -206,6 +234,52 @@ class AppTests(unittest.TestCase):
         for tile, resized in self.app.renderer.assets.items():
             with self.subTest(tile=tile):
                 self.assertLessEqual(colors(resized), colors(self.app.renderer.originals[tile]))
+
+    def test_player_animation_frames_and_actions(self):
+        self.app.renderer.draw(self.app.screen, self.app)
+        frames = self.app.renderer.player_frames
+        self.assertEqual(set(frames), {"idle", "walk", "push"})
+        for directions in frames.values():
+            self.assertEqual(set(directions), {"up", "down", "left", "right"})
+            for action_frames in directions.values():
+                self.assertEqual(len(action_frames), 4)
+                for frame in action_frames:
+                    self.assertEqual(frame.get_size(), (self.app.renderer.tile_size,) * 2)
+
+        first_idle_frames = [pygame.image.tobytes(frames["idle"][direction][0], "RGBA")
+                             for direction in ("up", "down", "left", "right")]
+        self.assertEqual(len(set(first_idle_frames)), 4)
+        for source in self.app.renderer.player_direction_sources.values():
+            self.assertEqual(source.get_at((0, 0)).a, 0)
+
+        self.app.move((-1, 0))
+        self.app.renderer.draw(self.app.screen, self.app)
+        self.assertEqual(self.app.renderer.player_action, "walk")
+        self.assertEqual(self.app.renderer.player_facing, (-1, 0))
+
+        self.app.move((-1, 0))
+        self.app.renderer.draw(self.app.screen, self.app)
+        self.app.move((0, 1))
+        self.app.renderer.draw(self.app.screen, self.app)
+        self.assertEqual(self.app.renderer.player_action, "push")
+        self.assertEqual(self.app.renderer.player_facing, (0, 1))
+
+    def test_player_faces_each_keyboard_direction(self):
+        self.app.select_level(1)
+        self.app.renderer.draw(self.app.screen, self.app)
+        for key, direction in ((pygame.K_UP, (0, -1)), (pygame.K_RIGHT, (1, 0)),
+                               (pygame.K_DOWN, (0, 1)), (pygame.K_LEFT, (-1, 0))):
+            self.app.handle_event(pygame.event.Event(pygame.KEYDOWN, key=key))
+            self.app.renderer.draw(self.app.screen, self.app)
+            self.assertEqual(self.app.renderer.player_facing, direction)
+
+    def test_undoing_push_does_not_play_push_animation(self):
+        for move in ((-1, 0), (-1, 0), (0, 1)):
+            self.app.move(move)
+            self.app.renderer.draw(self.app.screen, self.app)
+        self.app.action("undo")
+        self.app.renderer.draw(self.app.screen, self.app)
+        self.assertEqual(self.app.renderer.player_action, "walk")
 
     def test_completion_layout_at_all_window_sizes(self):
         self.win_level()

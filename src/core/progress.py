@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 
 try:
+    from src import config
     from src.ai.solutions import valid_path
 except ImportError:
+    import config
     from solutions import valid_path
 
 
@@ -46,12 +48,35 @@ class Progress:
         self.data["current"] = game.current_level_path.name
         if game.game_won:
             entry["completed"] = True
+            old_stars = entry.get("stars", 0)
+            if type(old_stars) is not int or not 0 <= old_stars <= 3:
+                old_stars = 0
+            entry["stars"] = max(
+                old_stars,
+                config.star_rating(game.current_level_path.name, game.moves),
+            )
             key = "best_assisted" if assisted else "best"
             score = [game.pushes, game.moves]
             old = entry.get(key)
             if (not isinstance(old, list) or len(old) != 2
                     or not all(type(n) is int and n >= 0 for n in old) or score < old):
                 entry[key] = score
+
+    def stars(self, game):
+        """Return saved stars, with backward-compatible inference for old saves."""
+        entry = self.entry(game)
+        if not entry.get("completed"):
+            return 0
+        saved = entry.get("stars")
+        if type(saved) is int and 1 <= saved <= 3:
+            return saved
+        ratings = [1]
+        for key in ("best", "best_assisted"):
+            score = entry.get(key)
+            if (isinstance(score, list) and len(score) == 2
+                    and type(score[1]) is int and score[1] >= 0):
+                ratings.append(config.star_rating(game.current_level_path.name, score[1]))
+        return max(ratings)
 
     def remember_solution(self, game, path):
         if valid_path(game, game.state, path, require_win=True):

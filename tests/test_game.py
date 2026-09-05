@@ -225,6 +225,25 @@ class ProgressTests(unittest.TestCase):
         self.progress.capture(self.game, False)
         self.assertEqual(self.progress.entry(self.game)["best"], [1, 3])
 
+    def test_star_thresholds_and_completion_floor(self):
+        level = "level01_first_step.txt"
+        self.assertEqual(config.star_rating(level, 3), 3)
+        self.assertEqual(config.star_rating(level, 4), 2)
+        self.assertEqual(config.star_rating(level, 99), 1)
+        self.assertEqual(config.star_rating(level, 3, completed=False), 0)
+
+    def test_stars_are_saved_and_old_completions_are_inferred(self):
+        for move in ((-1, 0), (-1, 0), (0, 1)):
+            self.game.move_player(*move)
+        self.progress.capture(self.game, False)
+        self.assertEqual(self.progress.entry(self.game)["stars"], 3)
+        self.assertEqual(self.progress.stars(self.game), 3)
+
+        entry = self.progress.entry(self.game)
+        entry.pop("stars")
+        entry["best"] = [1, 99]
+        self.assertEqual(self.progress.stars(self.game), 1)
+
     def test_write_failure_is_reported(self):
         self.path.mkdir()
         self.assertFalse(self.progress.save())
