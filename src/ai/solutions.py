@@ -1,6 +1,9 @@
 """Validate cached solutions and saved move sequences against Sokoban rules."""
 
-from game import DIRECTIONS, transition
+try:
+    from src.core.game import DIRECTIONS, transition
+except ImportError:
+    from game import DIRECTIONS, transition
 
 
 def valid_path(game, state, path, require_win=False):

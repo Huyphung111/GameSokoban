@@ -7,19 +7,38 @@ import os
 from threading import Event
 from time import monotonic
 
+import os
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR / "src") not in sys.path:
+    sys.path.insert(0, str(BASE_DIR / "src"))
+
 import pygame
 
-import config
-from ai_solver import solve_a_star, solve_hill_climbing_full
-from audio import Audio
-from game import Game
-from progress import Progress
-from renderer import Renderer
-from solutions import valid_path
+try:
+    from src import config
+    from src.ai.ai_solver import solve_a_star, solve_hill_climbing_full
+    from src.ai.solutions import valid_path
+    from src.core.game import Game
+    from src.core.progress import Progress
+    from src.ui.audio import Audio
+    from src.ui.renderer import Renderer
+except ImportError:
+    import config
+    from ai_solver import solve_a_star, solve_hill_climbing_full
+    from audio import Audio
+    from game import Game
+    from progress import Progress
+    from renderer import Renderer
+    from solutions import valid_path
 
 
 class App:
-    def __init__(self, save_path=None):
+    def __init__(self, save_path=None, start_title=None):
         # Prevent Windows from stretching the entire window as a bitmap.
         os.environ.setdefault("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2")
         pygame.mixer.pre_init(22050, -16, 1, 512)
@@ -47,6 +66,7 @@ class App:
         for error in errors:
             print(error)
         self.metrics = ""
+        self.title_screen = (save_path is None) if start_title is None else bool(start_title)
         self.menu_open = False
         self.completion_open = self.game.game_won
         self.completion_due = 0
@@ -191,6 +211,7 @@ class App:
         self.level_index = index
         self.game = Game(self.levels[index])
         self.assisted = self.progress.restore(self.game)
+        self.title_screen = False
         self.menu_open = False
         self.status, self.metrics = "Ready", ""
         self.changed()
@@ -198,7 +219,22 @@ class App:
     def action(self, action):
         if not action:
             return
-        if action == "dismiss_completion":
+        if action == "start_game":
+            self.title_screen = False
+            self.menu_open = False
+        elif action == "select_level_menu":
+            self.title_screen = False
+            self.menu_open = True
+            self.menu_offset = self.level_index
+        elif action == "home":
+            self.stop()
+            self.completion_open = False
+            self.deadlock_open = False
+            self.menu_open = False
+            self.title_screen = True
+        elif action == "exit":
+            self.running = False
+        elif action == "dismiss_completion":
             self.completion_open = False
         elif action == "dismiss_deadlock":
             self.deadlock_open = False
@@ -247,6 +283,28 @@ class App:
         self.playback_ms = int(350 - 280 * fraction)
 
     def handle_event(self, event):
+        if self.title_screen:
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.VIDEORESIZE and not self.fullscreen:
+                self.window_size = max(config.MIN_SCREEN_WIDTH, event.w), max(config.MIN_SCREEN_HEIGHT, event.h)
+                self.screen = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.action(self.renderer.action_at(event.pos))
+            elif event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                    self.action("start_game")
+                elif event.key in (pygame.K_TAB, pygame.K_l):
+                    self.action("select_level_menu")
+                elif event.key == pygame.K_m:
+                    self.action("sound")
+                elif event.key in (pygame.K_ESCAPE, pygame.K_q):
+                    self.running = False
+                elif event.key == pygame.K_F11:
+                    self.fullscreen = not self.fullscreen
+                    self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN) if self.fullscreen else pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+            return
+
         if event.type == pygame.QUIT:
             self.running = False
         elif event.type == pygame.VIDEORESIZE and not self.fullscreen:
@@ -283,10 +341,14 @@ class App:
                        pygame.K_m: "sound", pygame.K_SPACE: "stop"}
             if event.key == pygame.K_ESCAPE:
                 self.stop()
-                self.completion_open = False
-                self.deadlock_open = False
-                self.menu_open = False
-                self.status = "Stopped"
+                if self.completion_open or self.deadlock_open:
+                    self.completion_open = False
+                    self.deadlock_open = False
+                elif self.menu_open:
+                    self.menu_open = False
+                else:
+                    self.title_screen = True
+                self.status = "Ready"
             elif event.key == pygame.K_F11:
                 self.fullscreen = not self.fullscreen
                 self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN) if self.fullscreen else pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
@@ -302,6 +364,8 @@ class App:
                 self.action(actions[event.key])
 
     def update(self):
+        if self.title_screen:
+            return
         self.poll_solver()
         now = pygame.time.get_ticks()
         if self.playback and now >= self.next_step and not self.menu_open:

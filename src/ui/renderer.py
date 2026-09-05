@@ -5,7 +5,10 @@ from math import cos, pi, sin
 
 import pygame
 
-import config
+try:
+    from src import config
+except ImportError:
+    import config
 
 BG = (23, 27, 29)
 PANEL = (34, 40, 42)
@@ -37,10 +40,19 @@ class Renderer:
         self.previous_state = self.current_state = None
         self.current_level = None
         self.animation_start = 0
+        title_path = config.BASE_DIR / "assets" / "title_screen.jpg"
+        self.title_bg = pygame.image.load(str(title_path)).convert() if title_path.exists() else None
+        self.cached_title_surf = None
+        self.cached_title_size = (0, 0)
 
     def text(self, surface, value, rect, size=22, color=INK, center=False, symbol=False):
         rect = pygame.Rect(rect)
-        font = self.symbol_font if symbol else self.fonts[size]
+        if symbol:
+            font = self.symbol_font
+        else:
+            if size not in self.fonts:
+                self.fonts[size] = pygame.font.Font(self.font_path, size)
+            font = self.fonts[size]
         value = str(value)
         # Render at the final font size rather than resampling text pixels.
         while not symbol and size > 12 and (font.size(value)[0] > rect.width or font.get_height() > rect.height):
@@ -162,7 +174,87 @@ class Renderer:
             surface.blit(effect, (ox + x * size + size // 2 - center, oy + y * size + size // 2 - center))
         surface.set_clip(old_clip)
 
+    def draw_title_screen(self, surface, app):
+        width, height = surface.get_size()
+        self.buttons = []
+        self.modal_buttons = []
+
+        # Warm background fill
+        surface.fill((210, 186, 155))
+        floor_h = max(60, int(height * 0.12))
+        pygame.draw.rect(surface, (119, 84, 62), (0, height - floor_h, width, floor_h))
+
+        if self.title_bg:
+            bg_w, bg_h = self.title_bg.get_size()
+            scale = max(width / bg_w, height / bg_h)
+            sw, sh = int(bg_w * scale), int(bg_h * scale)
+            if self.cached_title_size != (sw, sh) or self.cached_title_surf is None:
+                self.cached_title_size = (sw, sh)
+                self.cached_title_surf = pygame.transform.smoothscale(self.title_bg, (sw, sh))
+            ox = (width - sw) // 2
+            oy = (height - sh) // 2
+            surface.blit(self.cached_title_surf, (ox, oy))
+
+        center_x = width // 2
+        base_y = max(360, int(height * 0.60))
+
+        # Check progress for button label
+        entry = app.progress.entry(app.game)
+        has_progress = bool(entry.get("actions")) or entry.get("completed")
+        play_label = f"CONTINUE (LEVEL {app.level_index + 1:02d})" if has_progress else "START GAME"
+
+        # Button 1: Play
+        btn_w = min(320, width - 40)
+        btn1 = pygame.Rect(0, 0, btn_w, 52)
+        btn1.center = (center_x, base_y)
+        hover1 = btn1.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(surface, (25, 75, 40), btn1.move(0, 4), border_radius=12)
+        pygame.draw.rect(surface, (56, 180, 95) if hover1 else (46, 160, 85), btn1, border_radius=12)
+        pygame.draw.rect(surface, (210, 255, 230) if hover1 else (160, 235, 185), btn1, 2, border_radius=12)
+        tx = btn1.x + 28
+        ty = btn1.centery
+        pygame.draw.polygon(surface, INK, [(tx - 6, ty - 8), (tx - 6, ty + 8), (tx + 7, ty)])
+        self.text(surface, play_label, (btn1.x + 36, btn1.y, btn1.width - 48, btn1.height), size=24, color=INK, center=True)
+        self.buttons.append((btn1, "start_game", True, "Play"))
+
+        # Button 2: Levels
+        btn2 = pygame.Rect(0, 0, btn_w, 46)
+        btn2.center = (center_x, base_y + 64)
+        hover2 = btn2.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(surface, (60, 45, 30), btn2.move(0, 3), border_radius=10)
+        pygame.draw.rect(surface, (125, 92, 65) if hover2 else (105, 78, 55), btn2, border_radius=10)
+        pygame.draw.rect(surface, (240, 215, 180) if hover2 else (215, 185, 150), btn2, 2, border_radius=10)
+        self.text(surface, "CHOOSE LEVEL", btn2, size=22, color=INK, center=True)
+        self.buttons.append((btn2, "select_level_menu", True, "Levels"))
+
+        # Buttons 3 & 4: Sound & Exit
+        sub_w = min(152, (btn_w - 12) // 2)
+        btn3 = pygame.Rect(center_x - sub_w - 6, base_y + 120, sub_w, 40)
+        hover3 = btn3.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(surface, (45, 52, 52), btn3.move(0, 2), border_radius=8)
+        pygame.draw.rect(surface, (90, 102, 102) if hover3 else (75, 85, 85), btn3, border_radius=8)
+        pygame.draw.rect(surface, (190, 205, 205), btn3, 1, border_radius=8)
+        sound_label = "Sound: ON" if app.audio.enabled else "Sound: OFF"
+        self.text(surface, sound_label, btn3, size=18, color=INK, center=True)
+        self.buttons.append((btn3, "sound", app.audio.available, "Sound"))
+
+        btn4 = pygame.Rect(center_x + 6, base_y + 120, sub_w, 40)
+        hover4 = btn4.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(surface, (75, 35, 35), btn4.move(0, 2), border_radius=8)
+        pygame.draw.rect(surface, (160, 70, 70) if hover4 else (140, 60, 60), btn4, border_radius=8)
+        pygame.draw.rect(surface, (255, 180, 180), btn4, 1, border_radius=8)
+        self.text(surface, "EXIT", btn4, size=18, color=INK, center=True)
+        self.buttons.append((btn4, "exit", True, "Exit"))
+
+        # Shortcut footer hint
+        hint_text = "[ENTER / SPACE] Play   *   [TAB] Levels   *   [M] Sound   *   [ESC] Exit"
+        self.text(surface, hint_text, (16, height - 34, width - 32, 24), size=14, color=(220, 195, 170), center=True)
+
     def draw(self, surface, app):
+        if getattr(app, "title_screen", False):
+            self.draw_title_screen(surface, app)
+            return
+
         width, height = surface.get_size()
         surface.fill(BG)
         self.buttons = []
@@ -172,7 +264,8 @@ class Renderer:
                   (width - 108, 14, 90, 32), size=26, color=GREEN, center=True)
         gap, left = 6, 16
         icon_w = 40
-        controls = [("levels", "Levels", 86, True, False),
+        controls = [("home", "Home", 72, True, False),
+                    ("levels", "Levels", 78, True, False),
                     ("previous", "\u2039", icon_w, app.level_index > 0, True),
                     ("next", "\u203a", icon_w, app.level_index < len(app.levels) - 1, True),
                     ("undo", "\u21b6", icon_w, app.game.can_undo, True),

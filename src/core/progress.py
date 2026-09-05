@@ -3,7 +3,10 @@
 import json
 from pathlib import Path
 
-from solutions import valid_path
+try:
+    from src.ai.solutions import valid_path
+except ImportError:
+    from solutions import valid_path
 
 
 class Progress:

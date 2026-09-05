@@ -7,7 +7,10 @@ from itertools import count
 from random import Random
 from time import monotonic
 
-from game import DIRECTIONS, add
+try:
+    from src.core.game import DIRECTIONS, add
+except ImportError:
+    from game import DIRECTIONS, add
 
 
 @dataclass

@@ -2,12 +2,25 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-import config
-from ai_solver import solve_a_star, solve_hill_climbing_full
-from game import Game
-from progress import valid_path
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR / "src") not in sys.path:
+    sys.path.insert(0, str(BASE_DIR / "src"))
+
+try:
+    from src import config
+    from src.ai.ai_solver import solve_a_star, solve_hill_climbing_full
+    from src.ai.solutions import valid_path
+    from src.core.game import Game
+except ImportError:
+    import config
+    from ai_solver import solve_a_star, solve_hill_climbing_full
+    from game import Game
+    from progress import valid_path
 
 
 def main():

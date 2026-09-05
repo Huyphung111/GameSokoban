@@ -4,6 +4,7 @@ os.environ["SDL_VIDEODRIVER"] = "dummy"
 os.environ["SDL_AUDIODRIVER"] = "dummy"
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
+import sys
 import tempfile
 import time
 import unittest
@@ -12,10 +13,21 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR / "src") not in sys.path:
+    sys.path.insert(0, str(BASE_DIR / "src"))
+
 import pygame
 
-import config
-from ai_solver import SolveResult, solve_hill_climbing_full
+try:
+    from src import config
+    from src.ai.ai_solver import SolveResult, solve_hill_climbing_full
+except ImportError:
+    import config
+    from ai_solver import SolveResult, solve_hill_climbing_full
+
 from main import App
 
 

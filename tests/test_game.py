@@ -1,13 +1,27 @@
+import sys
 import tempfile
 import unittest
 from collections import deque
 from pathlib import Path
 from threading import Event
 
-import config
-from ai_solver import solve_a_star, solve_hill_climbing_full
-from game import DIRECTIONS, Game, transition
-from progress import Progress, valid_path
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR / "src") not in sys.path:
+    sys.path.insert(0, str(BASE_DIR / "src"))
+
+try:
+    from src import config
+    from src.ai.ai_solver import solve_a_star, solve_hill_climbing_full
+    from src.ai.solutions import valid_path
+    from src.core.game import DIRECTIONS, Game, transition
+    from src.core.progress import Progress
+except ImportError:
+    import config
+    from ai_solver import solve_a_star, solve_hill_climbing_full
+    from game import DIRECTIONS, Game, transition
+    from progress import Progress, valid_path
 
 
 class GameTests(unittest.TestCase):
@@ -112,7 +126,7 @@ class SolverTests(unittest.TestCase):
     def test_small_levels_match_independent_minimum_push_search(self):
         # 0-1 BFS over individual player moves is independent of macro-push A*.
         for path in config.level_files():
-            if path.name == "level2.txt":
+            if path.name == "level11_final_challenge.txt":
                 continue
             with self.subTest(level=path.name):
                 game = Game(path)
@@ -147,7 +161,7 @@ class SolverTests(unittest.TestCase):
         self.assertEqual(solve_hill_climbing_full(game, cancel=event).status, "cancelled")
 
     def test_hill_partial_path_is_not_solution(self):
-        game = Game(config.BASE_DIR / "levels" / "level1b_two_boxes.txt")
+        game = Game(config.BASE_DIR / "levels" / "level02_two_boxes.txt")
         result = solve_hill_climbing_full(game, max_steps=1)
         self.assertEqual(result.status, "limit")
         self.assertTrue(result.path)
@@ -182,7 +196,7 @@ class ProgressTests(unittest.TestCase):
         self.progress.remember_solution(self.game, result.path)
         cached = self.progress.cached_solution(self.game)
         self.assertTrue(valid_path(self.game, self.game.initial_state, cached, True))
-        other = Game(config.BASE_DIR / "levels" / "level1b_two_boxes.txt")
+        other = Game(config.BASE_DIR / "levels" / "level02_two_boxes.txt")
         self.assertIsNone(self.progress.cached_solution(other))
         self.progress.entry(self.game)["solution"] = [[99, 0]]
         self.assertIsNone(self.progress.cached_solution(self.game))

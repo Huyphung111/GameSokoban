@@ -15,6 +15,32 @@ python main.py
 Assets and levels are resolved relative to the project, so the script can also be
 launched by absolute path from another working directory. No web server is needed.
 
+## Project Structure
+
+```text
+Sokoban/
+├── main.py              # Main application entry point
+├── benchmark.py         # Solver performance benchmark CLI
+├── requirements.txt     # Python dependencies
+│
+├── src/                 # Application source package
+│   ├── config.py        # Centralized settings and resource paths
+│   ├── core/            # Game logic and state (independent of Pygame)
+│   │   ├── game.py      # Core Sokoban rules, board state, deadlock checks
+│   │   └── progress.py  # Progress persistence, scores, and replay history
+│   ├── ai/              # Search algorithms and solution validators
+│   │   ├── ai_solver.py # A* push search and Hill Climbing algorithms
+│   │   └── solutions.py # Move sequence validation against Sokoban rules
+│   └── ui/              # Pygame presentation layer
+│       ├── renderer.py  # Board graphics, responsive UI, fonts, modals
+│       └── audio.py     # Sound effects synthesizer and playback
+│
+├── assets/              # Pixel-art game sprites (.png)
+├── data/                # Player save files (progress.json)
+├── levels/              # 11 hand-crafted levels (.txt)
+└── tests/               # Automated unit tests
+```
+
 ## Controls
 
 | Key | Action |
