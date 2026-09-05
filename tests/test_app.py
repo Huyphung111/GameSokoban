@@ -196,6 +196,8 @@ class AppTests(unittest.TestCase):
     def test_upscaled_assets_preserve_source_colors(self):
         self.app.renderer.draw(self.app.screen, self.app)
         self.assertGreater(self.app.renderer.tile_size, 64)
+        box = self.app.renderer.assets["$"]
+        self.assertEqual(box.get_bounding_rect(min_alpha=8), box.get_rect())
 
         def colors(surface):
             pixels = pygame.image.tobytes(surface, "RGBA")
@@ -241,6 +243,19 @@ class AppTests(unittest.TestCase):
         self.app.select_level(len(self.app.levels) - 1)
         self.app.renderer.draw(self.app.screen, self.app)
         pygame.image.save(self.app.screen, str(output / "challenge.png"))
+
+    def test_title_screen_layout_at_all_window_sizes(self):
+        output = config.BASE_DIR / "test-artifacts"
+        output.mkdir(exist_ok=True)
+        self.app.title_screen = True
+        for width, height in ((480, 520), (900, 760), (1200, 800)):
+            self.app.handle_event(pygame.event.Event(pygame.VIDEORESIZE, w=width, h=height))
+            self.app.renderer.draw(self.app.screen, self.app)
+            rects = [rect for rect, _, _, _ in self.app.renderer.buttons]
+            for index, rect in enumerate(rects):
+                self.assertTrue(self.app.screen.get_rect().contains(rect))
+                self.assertFalse(any(rect.colliderect(other) for other in rects[index + 1:]))
+            pygame.image.save(self.app.screen, str(output / f"title-{width}.png"))
 
 
 if __name__ == "__main__":

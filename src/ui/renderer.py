@@ -10,12 +10,16 @@ try:
 except ImportError:
     import config
 
-BG = (23, 27, 29)
-PANEL = (34, 40, 42)
-INK = (235, 240, 238)
-MUTED = (162, 174, 172)
-GREEN = (111, 214, 160)
-RED = (248, 133, 132)
+BG = (12, 18, 18)
+PANEL = (72, 43, 25)
+INK = (255, 229, 164)
+MUTED = (211, 174, 111)
+GREEN = (145, 224, 75)
+RED = (248, 133, 96)
+WOOD = (126, 72, 27)
+WOOD_LIGHT = (184, 111, 39)
+WOOD_DARK = (48, 28, 18)
+GOLD = (255, 190, 48)
 TOP = 174
 BOTTOM = 108
 
@@ -31,6 +35,9 @@ class Renderer:
             for tile, name in {"#": "wall.png", " ": "floor.png", "@": "player.png",
                                "$": "box.png", ".": "goal.png"}.items()
         }
+        box_bounds = self.originals["$"].get_bounding_rect(min_alpha=8)
+        if box_bounds.width and box_bounds.height:
+            self.originals["$"] = self.originals["$"].subsurface(box_bounds).copy()
         self.assets = {}
         self.tile_size = 0
         self.buttons = []
@@ -44,6 +51,36 @@ class Renderer:
         self.title_bg = pygame.image.load(str(title_path)).convert() if title_path.exists() else None
         self.cached_title_surf = None
         self.cached_title_size = (0, 0)
+        cave_path = config.BASE_DIR / "assets" / "cave_background.png"
+        self.cave_bg = pygame.image.load(str(cave_path)).convert() if cave_path.exists() else None
+        self.cached_cave_surf = None
+        self.cached_cave_size = (0, 0)
+
+    def background(self, surface):
+        """Cover the window with the cave art while preserving its aspect ratio."""
+        surface.fill(BG)
+        if not self.cave_bg:
+            return
+        width, height = surface.get_size()
+        source_width, source_height = self.cave_bg.get_size()
+        scale = max(width / source_width, height / source_height)
+        size = round(source_width * scale), round(source_height * scale)
+        if self.cached_cave_surf is None or size != self.cached_cave_size:
+            self.cached_cave_size = size
+            self.cached_cave_surf = pygame.transform.smoothscale(self.cave_bg, size)
+        surface.blit(self.cached_cave_surf, ((width - size[0]) // 2, (height - size[1]) // 2))
+
+    def panel(self, surface, rect, fill=PANEL, border=WOOD_LIGHT, radius=10):
+        """Draw a layered carved-wood panel used by every part of the HUD."""
+        rect = pygame.Rect(rect)
+        pygame.draw.rect(surface, (0, 0, 0, 90), rect.move(0, 4), border_radius=radius)
+        pygame.draw.rect(surface, WOOD_DARK, rect, border_radius=radius)
+        inner = rect.inflate(-4, -4)
+        pygame.draw.rect(surface, fill, inner, border_radius=max(2, radius - 2))
+        pygame.draw.line(surface, border, (inner.left + 8, inner.top + 2),
+                         (inner.right - 8, inner.top + 2), 2)
+        pygame.draw.rect(surface, border, rect, 2, border_radius=radius)
+        return rect
 
     def text(self, surface, value, rect, size=22, color=INK, center=False, symbol=False):
         rect = pygame.Rect(rect)
@@ -71,11 +108,20 @@ class Renderer:
     def button(self, surface, action, label, rect, enabled=True, tooltip="", active=False, symbol=False):
         rect = pygame.Rect(rect)
         hovered = rect.collidepoint(pygame.mouse.get_pos())
-        fill = (58, 80, 69) if active else ((59, 68, 68) if hovered and enabled else PANEL)
-        pygame.draw.rect(surface, fill, rect, border_radius=6)
-        if active:
-            pygame.draw.rect(surface, GREEN, rect, 1, border_radius=6)
-        self.text(surface, label, rect.inflate(-4 if symbol else -12, -4), color=INK if enabled else (92, 104, 104),
+        if not enabled:
+            fill, border, color = (70, 58, 45), (92, 73, 52), (145, 123, 88)
+        elif active:
+            fill, border, color = (111, 126, 29), (213, 222, 64), (255, 242, 141)
+        elif hovered:
+            fill, border, color = (166, 96, 29), GOLD, (255, 240, 190)
+        else:
+            fill, border, color = WOOD, WOOD_LIGHT, INK
+        pygame.draw.rect(surface, (31, 18, 12), rect.move(0, 3), border_radius=7)
+        pygame.draw.rect(surface, fill, rect, border_radius=7)
+        pygame.draw.line(surface, tuple(min(255, value + 35) for value in fill),
+                         (rect.left + 7, rect.top + 2), (rect.right - 7, rect.top + 2), 2)
+        pygame.draw.rect(surface, border, rect, 2, border_radius=7)
+        self.text(surface, label, rect.inflate(-4 if symbol else -12, -4), color=color,
                   center=True, symbol=symbol)
         self.buttons.append((rect, action, enabled, tooltip))
 
@@ -96,6 +142,9 @@ class Renderer:
         size = self.tile_size
         ox = (width - game.width * size) // 2
         oy = TOP + (height - TOP - BOTTOM - game.height * size) // 2
+        board_rect = pygame.Rect(ox, oy, game.width * size, game.height * size)
+        pygame.draw.rect(surface, (4, 8, 8), board_rect.inflate(14, 14), border_radius=8)
+        pygame.draw.rect(surface, (91, 55, 29), board_rect.inflate(8, 8), 4, border_radius=6)
         if game.level_id != self.current_level:
             self.previous_state = self.current_state = game.state
             self.current_level = game.level_id
@@ -179,11 +228,7 @@ class Renderer:
         self.buttons = []
         self.modal_buttons = []
 
-        # Warm background fill
-        surface.fill((210, 186, 155))
-        floor_h = max(60, int(height * 0.12))
-        pygame.draw.rect(surface, (119, 84, 62), (0, height - floor_h, width, floor_h))
-
+        surface.fill(BG)
         if self.title_bg:
             bg_w, bg_h = self.title_bg.get_size()
             scale = max(width / bg_w, height / bg_h)
@@ -196,59 +241,51 @@ class Renderer:
             surface.blit(self.cached_title_surf, (ox, oy))
 
         center_x = width // 2
-        base_y = max(360, int(height * 0.60))
+        veil = pygame.Surface((width, height), pygame.SRCALPHA)
+        veil.fill((0, 8, 10, 35))
+        surface.blit(veil, (0, 0))
+
+        logo_width = min(520, width - 40)
+        logo = pygame.Rect(0, 0, logo_width, 88)
+        logo.midtop = center_x, 22
+        self.panel(surface, logo, fill=(94, 50, 22), border=GOLD, radius=14)
+        self.text(surface, "SOKOBAN", (logo.x + 18, logo.y + 8, logo.width - 36, 52),
+                  size=46, color=GOLD, center=True)
+        self.text(surface, "PUSH  /  PLAN  /  SOLVE",
+                  (logo.x + 18, logo.y + 58, logo.width - 36, 20),
+                  size=16, color=(236, 198, 119), center=True)
+
+        base_y = max(300, min(height - 190, int(height * .62)))
 
         # Check progress for button label
         entry = app.progress.entry(app.game)
         has_progress = bool(entry.get("actions")) or entry.get("completed")
         play_label = f"CONTINUE (LEVEL {app.level_index + 1:02d})" if has_progress else "START GAME"
 
-        # Button 1: Play
         btn_w = min(320, width - 40)
+        menu_panel = pygame.Rect(0, 0, btn_w + 28, 184)
+        menu_panel.midtop = center_x, base_y - 38
+        self.panel(surface, menu_panel, fill=(55, 34, 22), border=(132, 82, 38), radius=12)
+
         btn1 = pygame.Rect(0, 0, btn_w, 52)
         btn1.center = (center_x, base_y)
-        hover1 = btn1.collidepoint(pygame.mouse.get_pos())
-        pygame.draw.rect(surface, (25, 75, 40), btn1.move(0, 4), border_radius=12)
-        pygame.draw.rect(surface, (56, 180, 95) if hover1 else (46, 160, 85), btn1, border_radius=12)
-        pygame.draw.rect(surface, (210, 255, 230) if hover1 else (160, 235, 185), btn1, 2, border_radius=12)
-        tx = btn1.x + 28
-        ty = btn1.centery
-        pygame.draw.polygon(surface, INK, [(tx - 6, ty - 8), (tx - 6, ty + 8), (tx + 7, ty)])
-        self.text(surface, play_label, (btn1.x + 36, btn1.y, btn1.width - 48, btn1.height), size=24, color=INK, center=True)
-        self.buttons.append((btn1, "start_game", True, "Play"))
+        self.button(surface, "start_game", play_label, btn1, active=True, tooltip="Play")
 
-        # Button 2: Levels
         btn2 = pygame.Rect(0, 0, btn_w, 46)
         btn2.center = (center_x, base_y + 64)
-        hover2 = btn2.collidepoint(pygame.mouse.get_pos())
-        pygame.draw.rect(surface, (60, 45, 30), btn2.move(0, 3), border_radius=10)
-        pygame.draw.rect(surface, (125, 92, 65) if hover2 else (105, 78, 55), btn2, border_radius=10)
-        pygame.draw.rect(surface, (240, 215, 180) if hover2 else (215, 185, 150), btn2, 2, border_radius=10)
-        self.text(surface, "CHOOSE LEVEL", btn2, size=22, color=INK, center=True)
-        self.buttons.append((btn2, "select_level_menu", True, "Levels"))
+        self.button(surface, "select_level_menu", "CHOOSE LEVEL", btn2, tooltip="Levels")
 
-        # Buttons 3 & 4: Sound & Exit
         sub_w = min(152, (btn_w - 12) // 2)
         btn3 = pygame.Rect(center_x - sub_w - 6, base_y + 120, sub_w, 40)
-        hover3 = btn3.collidepoint(pygame.mouse.get_pos())
-        pygame.draw.rect(surface, (45, 52, 52), btn3.move(0, 2), border_radius=8)
-        pygame.draw.rect(surface, (90, 102, 102) if hover3 else (75, 85, 85), btn3, border_radius=8)
-        pygame.draw.rect(surface, (190, 205, 205), btn3, 1, border_radius=8)
         sound_label = "Sound: ON" if app.audio.enabled else "Sound: OFF"
-        self.text(surface, sound_label, btn3, size=18, color=INK, center=True)
-        self.buttons.append((btn3, "sound", app.audio.available, "Sound"))
+        self.button(surface, "sound", sound_label, btn3, app.audio.available, tooltip="Sound")
 
         btn4 = pygame.Rect(center_x + 6, base_y + 120, sub_w, 40)
-        hover4 = btn4.collidepoint(pygame.mouse.get_pos())
-        pygame.draw.rect(surface, (75, 35, 35), btn4.move(0, 2), border_radius=8)
-        pygame.draw.rect(surface, (160, 70, 70) if hover4 else (140, 60, 60), btn4, border_radius=8)
-        pygame.draw.rect(surface, (255, 180, 180), btn4, 1, border_radius=8)
-        self.text(surface, "EXIT", btn4, size=18, color=INK, center=True)
-        self.buttons.append((btn4, "exit", True, "Exit"))
+        self.button(surface, "exit", "EXIT", btn4, tooltip="Exit")
 
-        # Shortcut footer hint
         hint_text = "[ENTER / SPACE] Play   *   [TAB] Levels   *   [M] Sound   *   [ESC] Exit"
-        self.text(surface, hint_text, (16, height - 34, width - 32, 24), size=14, color=(220, 195, 170), center=True)
+        self.text(surface, hint_text, (16, height - 30, width - 32, 22), size=14,
+                  color=(220, 195, 150), center=True)
 
     def draw(self, surface, app):
         if getattr(app, "title_screen", False):
@@ -256,12 +293,23 @@ class Renderer:
             return
 
         width, height = surface.get_size()
-        surface.fill(BG)
+        self.background(surface)
         self.buttons = []
-        pygame.draw.rect(surface, PANEL, (0, 0, width, 64))
-        self.text(surface, "SOKOBAN", (18, 10, 180, 40), size=38)
+        veil = pygame.Surface((width, height), pygame.SRCALPHA)
+        veil.fill((0, 10, 12, 28))
+        surface.blit(veil, (0, 0))
+
+        logo_width = min(330, max(230, width - 190))
+        self.panel(surface, (16, 8, logo_width, 52), fill=(94, 50, 22), border=(194, 116, 38))
+        self.text(surface, "SOKOBAN", (28, 10, logo_width - 24, 46), size=38, color=GOLD, center=True)
+        badge = pygame.Rect(width - 152, 8, 136, 52)
+        self.panel(surface, badge, fill=(132, 91, 46), border=(220, 167, 82))
+        self.text(surface, "LEVEL", (badge.x + 8, badge.y + 5, badge.width - 16, 18),
+                  size=18, color=(55, 31, 18), center=True)
         self.text(surface, f"{app.level_index + 1:02d} / {len(app.levels):02d}",
-                  (width - 108, 14, 90, 32), size=26, color=GREEN, center=True)
+                  (badge.x + 8, badge.y + 22, badge.width - 16, 26), size=26,
+                  color=(48, 27, 17), center=True)
+        self.panel(surface, (10, 68, width - 20, 94), fill=(55, 35, 24), border=(105, 67, 38))
         gap, left = 6, 16
         icon_w = 40
         controls = [("home", "Home", 72, True, False),
@@ -293,11 +341,12 @@ class Renderer:
         else:
             self.draw_board(surface, app.game)
 
-        pygame.draw.rect(surface, PANEL, (0, height - BOTTOM, width, BOTTOM))
+        self.panel(surface, (10, height - BOTTOM + 4, width - 20, BOTTOM - 14),
+                   fill=(58, 36, 23), border=(116, 73, 37))
         game = app.game
         label = f"Moves {game.moves}    Pushes {game.pushes}    Goals {len(game.state[1] & game.goals)}/{len(game.goals)}"
-        self.text(surface, label, (16, height - 102, width - 190, 28))
-        self.text(surface, "AI assisted" if app.assisted else "Solo", (width - 160, height - 102, 144, 28), color=MUTED)
+        self.text(surface, label, (24, height - 98, width - 210, 28))
+        self.text(surface, "AI assisted" if app.assisted else "Solo", (width - 176, height - 98, 144, 28), color=GOLD)
         message, color = app.status, MUTED
         if game.game_won:
             message, color = "Level complete", GREEN

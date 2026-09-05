@@ -94,7 +94,9 @@ class App:
 
     @property
     def completion_visible(self):
-        return self.completion_open and pygame.time.get_ticks() >= self.completion_due
+        # Keep rendering and input routing in sync: an open modal must always
+        # have visible, clickable controls.
+        return self.completion_open
 
     def refresh(self):
         self.deadlocked = self.game.is_deadlocked()
